@@ -9,7 +9,8 @@ import java.util.Date;
 
 public class Logger {
     private File logFile;
-    private PrintStream printStream;
+    private PrintStream filePrintStream;
+    private PrintStream originalSystemOut;
     private SimpleDateFormat dateFormat;
 
     public Logger(String logDir) {
@@ -24,29 +25,58 @@ public class Logger {
             String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
             logFile = new File(directory, "log_" + timestamp + ".txt");
 
-            // Создаем PrintStream для перенаправления вывода
-            printStream = new PrintStream(new FileOutputStream(logFile, true)) {
+            // Сохраняем оригинальный System.out
+            originalSystemOut = System.out;
+
+            // Создаем PrintStream для файла
+            filePrintStream = new PrintStream(new FileOutputStream(logFile, true), true);
+
+            // Создаем кастомный PrintStream, который пишет и в файл, и в консоль
+            PrintStream dualPrintStream = new PrintStream(filePrintStream) {
                 @Override
                 public void println(String x) {
-                    String timestamp = dateFormat.format(new Date());
-                    super.println(timestamp + " - " + x);
+                    String timestampedMessage = dateFormat.format(new Date()) + " - " + x;
+                    filePrintStream.println(timestampedMessage); // Пишем в файл с меткой времени
+                    originalSystemOut.println(x); // Пишем в консоль без метки времени
+                }
+
+                @Override
+                public void print(String x) {
+                    filePrintStream.print(x); // Пишем в файл
+                    originalSystemOut.print(x); // Пишем в консоль
+                }
+
+                // Переопределяем flush для синхронизации
+                @Override
+                public void flush() {
+                    filePrintStream.flush();
+                    originalSystemOut.flush();
                 }
             };
 
-            // Перенаправляем стандартный вывод (System.out) в лог-файл
-            System.setOut(printStream);
+            // Перенаправляем System.out на кастомный PrintStream
+            System.setOut(dualPrintStream);
 
             // Инициализируем формат даты и времени для меток времени
             dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
         } catch (IOException e) {
-            System.out.println("Ошибка при создании лог-файла: " + e.getMessage());
+            // Используем originalSystemOut для вывода ошибки, если файл не создался
+            if (originalSystemOut != null) {
+                originalSystemOut.println("Ошибка при создании лог-файла: " + e.getMessage());
+            } else {
+                System.err.println("Ошибка при создании лог-файла: " + e.getMessage());
+            }
         }
     }
 
     // Метод для закрытия PrintStream
     public void close() {
-        if (printStream != null) {
-            printStream.close();
+        if (filePrintStream != null) {
+            filePrintStream.close();
+        }
+        // Восстанавливаем оригинальный System.out при закрытии
+        if (originalSystemOut != null) {
+            System.setOut(originalSystemOut);
         }
     }
 }

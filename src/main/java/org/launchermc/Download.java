@@ -96,22 +96,57 @@ public class Download {
             JsonArray libraries = versionDetails.getAsJsonArray("libraries");
             for (int i = 0; i < libraries.size(); i++) {
                 JsonObject library = libraries.get(i).getAsJsonObject();
-                JsonObject artifact = library.getAsJsonObject("downloads").getAsJsonObject("artifact");
+                JsonObject downloadsObj = library.getAsJsonObject("downloads");
 
-                String libraryPath = artifact.get("path").getAsString();
-                String libraryUrl = artifact.get("url").getAsString();
+                // Проверяем наличие artifact
+                JsonObject artifact = downloadsObj != null ? downloadsObj.getAsJsonObject("artifact") : null;
+                String libraryPath = null;
+                String libraryUrl = null;
 
-                System.out.println("Скачивание библиотеки с URL: " + libraryUrl);
+                if (artifact != null) {
+                    libraryPath = artifact.get("path").getAsString();
+                    libraryUrl = artifact.get("url").getAsString();
+                } else if (downloadsObj != null && downloadsObj.has("classifiers")) {
+                    // Обрабатываем classifiers для платформозависимых библиотек
+                    JsonObject classifiers = downloadsObj.getAsJsonObject("classifiers");
+                    String os = System.getProperty("os.name").toLowerCase();
+                    String classifierKey = null;
 
-                // Путь для сохранения библиотеки
-                File libraryFile = new File(versionDir, "libraries/" + libraryPath);
-                libraryFile.getParentFile().mkdirs(); // Создаём директории для структуры
+                    if (os.contains("win")) {
+                        classifierKey = "natives-windows";
+                    } else if (os.contains("linux")) {
+                        classifierKey = "natives-linux";
+                    } else if (os.contains("mac")) {
+                        classifierKey = "natives-macos";
+                    }
+
+                    if (classifierKey != null && classifiers.has(classifierKey)) {
+                        JsonObject classifier = classifiers.getAsJsonObject(classifierKey);
+                        libraryPath = classifier.get("path").getAsString();
+                        libraryUrl = classifier.get("url").getAsString();
+                    } else {
+                        System.out.println("Пропущена библиотека без подходящего classifier для ОС: " + os + ", индекс: " + i);
+                        System.out.println(library);
+                        continue; // Пропускаем библиотеку, если нет подходящего classifier
+                    }
+                } else {
+                    System.out.println("Пропущена библиотека без artifact и classifiers, индекс: " + i);
+                    System.out.println(library);
+                    continue; // Пропускаем библиотеку
+                }
+
+                // Создаем финальные копии для использования в лямбда-выражении
+                final String finalLibraryUrl = libraryUrl;
+                final File finalLibraryFile = new File(versionDir, "libraries/" + libraryPath);
+                finalLibraryFile.getParentFile().mkdirs(); // Создаём директории для структуры
+
+                System.out.println("Скачивание библиотеки с URL: " + finalLibraryUrl);
 
                 // Скачиваем библиотеку в отдельном потоке
                 executor.submit(() -> {
                     try {
-                        Files.copy(new URL(libraryUrl).openStream(), libraryFile.toPath());
-                        System.out.println("Библиотека успешно скачана: " + libraryFile.getAbsolutePath());
+                        Files.copy(new URL(finalLibraryUrl).openStream(), finalLibraryFile.toPath());
+                        System.out.println("Библиотека успешно скачана: " + finalLibraryFile.getAbsolutePath());
                     } catch (IOException e) {
                         System.out.println("Ошибка при скачивании библиотеки: " + e.getMessage());
                     }
